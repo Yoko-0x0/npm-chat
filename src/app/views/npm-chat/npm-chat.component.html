@@ -1,6 +1,41 @@
-@if (!isLlmLoaded()) {
-<app-llm-progress />
-} @else {
-<app-messages />
-}
-<app-prompt />
+<header class="z-10 flex items-center h-[60px] mx-auto max-w-screen-lg">
+  <div
+    class="relative flex items-center justify-between flex-1 border-b border-solid border-neutral-300 dark:border-neutral-700 px-4 h-full"
+  >
+    <div class="flex items-center justify-end gap-1">
+      <app-repo-btn />
+      <app-theme-btn />
+    </div>
+    @if (hasMessages()) {
+    <div class="absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2">
+      <app-chat-brand [horizontal]="true" [asTitle]="false" />
+    </div>
+    <app-new-chat-btn />
+    }
+  </div>
+</header>
+<main class="grid grid-rows-[1fr_100px] overflow-hidden">
+  <section #scrollable class="overflow-y-auto h-[calc(100svh-160px)]">
+    @if (!isLlmLoaded()) {
+    <app-llm-progress />
+    <div class="fixed top-1/2 -translate-y-1/2 left-1/2 -translate-x-1/2">
+      <app-chat-brand />
+    </div>
+    } @else { @if (hasMessages()) {
+    <div class="h-full p-4 mx-auto max-w-screen-lg">
+      <app-messages [scrollable]="scrollable" />
+    </div>
+    } @else {
+    <div class="grid place-items-center h-full gap-8 mx-auto max-w-screen-lg">
+      <div class="flex flex-col gap-8 p-4">
+        <app-chat-brand />
+        <app-templates />
+      </div>
+    </div>
+
+    } }
+  </section>
+  <section class="px-4 w-full h-full mx-auto max-w-screen-lg">
+    <app-prompt />
+  </section>
+</main>

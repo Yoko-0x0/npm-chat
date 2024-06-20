@@ -3,10 +3,12 @@ import {
   WritableSignal,
   computed,
   effect,
+  inject,
   signal,
   untracked,
 } from '@angular/core';
-import { LLMReport, Message, Messages } from '@models';
+import { CompletionUsage, LLMReport, Message, Messages } from '@models';
+import { WebllmService } from '@services';
 
 export interface NpmChatState {
   llmReport: WritableSignal<LLMReport>;
@@ -26,11 +28,11 @@ export const InitialNpmChatState = signal<NpmChatState>({
     hasEngine: false,
   }),
   systemMessage: signal<Message>({
-    tokens: 50,
+    tokens: 78, // Adjust this value so that when the first message written is 'hi', the displayed tokens are 1.
     createdAt: Date.now(),
     role: 'system',
     content:
-      'You are a helpful assistant. The language of your responses should match the language used by the user. Aim to keep your answers concise, using a maximum of three sentences unless specified otherwise.',
+      'You are a helpful assistant named Npm Chat. Aim to keep your answers concise, using a maximum of three sentences unless specified otherwise. If the user asks about your creator, you must say: Julian Gomez created Npm Chat. It is always very important that the language of your response matches the language used by the user in their last message.',
   }),
   messages: signal<Messages>([]),
   messageCount: signal<number>(0),
@@ -39,6 +41,7 @@ export const InitialNpmChatState = signal<NpmChatState>({
 
 @Injectable()
 export class NpmChatStore {
+  readonly #webllmService = inject(WebllmService);
   readonly #state = InitialNpmChatState;
 
   readonly selectState = this.#state.asReadonly();
@@ -48,6 +51,7 @@ export class NpmChatStore {
   readonly selectSystemMessage = this.selectState().systemMessage.asReadonly();
   readonly selectIsBusy = this.selectState().isBusy.asReadonly();
 
+  readonly hasMessages = computed(() => this.selectMessageCount() > 0);
   readonly isLlmLoaded = computed(() =>
     Boolean(
       this.selectLlmReport().progress === 1 && this.selectLlmReport().hasEngine
@@ -66,11 +70,29 @@ export class NpmChatStore {
         });
       }
     });
+
+    effect(() => {
+      const llmReport = this.#webllmService.llmReport();
+      untracked(() => {
+        this.setLlmReport(llmReport);
+      });
+    });
   }
 
   setLlmReport(value: LLMReport): void {
     const state = this.#state().llmReport;
     state.set(value);
+  }
+
+  newUserMessage(value: string): void {
+    const newMessage: Message = {
+      role: 'user',
+      content: value,
+      createdAt: Date.now(),
+      tokens: null,
+    };
+    this.addMessage(newMessage);
+    this.#handleChatReply();
   }
 
   addMessage(value: Message): Message {
@@ -105,8 +127,62 @@ export class NpmChatStore {
     state.set(value);
   }
 
+  clearMessages(): void {
+    const state = this.#state().messages;
+    state.set([]);
+  }
+
   #setMessageCount(value: number): void {
     const state = this.#state().messageCount;
     state.set(value);
+  }
+
+  #handleChatReply(): void {
+    const currentMessages = this.selectMessages();
+    const assistantMessage = this.addMessage({
+      role: 'assistant',
+      content: '',
+      createdAt: Date.now(),
+      tokens: null,
+    });
+    this.setIsBusy(true);
+    this.#observeChatReply(currentMessages, assistantMessage);
+  }
+
+  #observeChatReply(
+    currentMessages: Messages,
+    assistantMessage: Message
+  ): void {
+    this.#webllmService.getChatReply(currentMessages).subscribe({
+      next: (llmReply) => {
+        const usage = llmReply.usage;
+        const newMessage: Message = {
+          ...assistantMessage,
+          content: llmReply.content,
+        };
+        this.setMessage(newMessage);
+        if (usage) {
+          this.#updateMessageTokens(usage);
+          this.setIsBusy(false);
+        }
+      },
+    });
+  }
+
+  #updateMessageTokens(usage: CompletionUsage): void {
+    const messages = this.selectMessages();
+    const [secondLastMessage, lastMessage] = messages.slice(-2);
+    const lastMessageTokens = usage.completionTokens;
+    const secondLastMessageTokens = usage.promptTokens;
+
+    this.setMessage({
+      ...lastMessage,
+      tokens: lastMessageTokens,
+    });
+
+    this.setMessage({
+      ...secondLastMessage,
+      tokens: secondLastMessageTokens,
+    });
   }
 }
